@@ -8,6 +8,8 @@ AC_PROG_LIBTOOL
 AC_PROG_INSTALL
 AC_HEADER_STDBOOL
 AM_PROG_CC_C_O
+AC_CHECK_LIB([curses], [initscr])
+AC_CHECK_LIB([menu], [new_menu])
 
 AM_GNU_GETTEXT([external], [need-formatstring-macros])
 AM_GNU_GETTEXT_VERSION([0.19.8])
