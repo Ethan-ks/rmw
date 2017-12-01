@@ -305,33 +305,14 @@ Duplicate filename at destination - appending time string...\n"));
 void
 restore_select (struct waste_containers *waste, char *time_str_appended)
 {
-  struct stat st;
-  struct dirent *entry;
-  char path_to_file[MP];
+  ushort entries = 0;
 
-  unsigned count = 0;
-  char input[10];
-
-  unsigned char char_count = 0;
   short choice = 0;
-
-  /* FIXME: this line will hold the path to the file + type of file  + the
-   * size. How much space should be allocated, and should it be declared
-   * differently?
-   */
-  char line[PATH_MAX + 1];
 
   ITEM **my_items;
   int c;
   MENU *my_menu;
-  int n_choices, i;
   ITEM *cur_item;
-
-  /* Initialize curses */
-  initscr ();
-  cbreak ();
-  noecho ();
-  keypad (stdscr, TRUE);
 
   /*
    * ctr increments at the end of the loop, if choice hasn't been made,
@@ -342,12 +323,18 @@ restore_select (struct waste_containers *waste, char *time_str_appended)
 
   while (strcmp (waste[ctr].parent, "NULL") != 0)
   {
+    /* Initialize curses */
+    initscr ();
+    cbreak ();
+    noecho ();
+    keypad (stdscr, TRUE);
+    clear ();
+
+    struct stat st;
+    struct dirent *entry;
     static DIR *dir;
     dir = opendir (waste[ctr].files);
-    count = 0;
-
-    if (!choice)
-      printf ("\t>-- %s --<\n", waste[ctr].files);
+    entries = 0;
 
     /* Find out the size of the array needed for the menu choices */
     while ((entry = readdir (dir)) != NULL)
@@ -355,15 +342,18 @@ restore_select (struct waste_containers *waste, char *time_str_appended)
       if (!strcmp (entry->d_name, ".") || !strcmp (entry->d_name, ".."))
         continue;
 
-      count++;
+      entries++;
     }
 
     /* FIXME: needs error checking on close() */
     closedir (dir);
 
-    char choices[count][PATH_MAX + 1];
-    const int saved_count = count;
-    count = 0;
+    int n_choices, i;
+
+    char choices[entries][PATH_MAX + 1];
+    char desc[entries][80 + 1];
+
+    entries = 0;
 
     dir = opendir (waste[ctr].files);
 
@@ -372,28 +362,18 @@ restore_select (struct waste_containers *waste, char *time_str_appended)
       if (!strcmp (entry->d_name, ".") || !strcmp (entry->d_name, ".."))
         continue;
 
-      strcpy (path_to_file, waste[ctr].files);
-
-      /* Not yet sure if 'trim' is needed yet; using it
-       *  until I get smarter
-       */
-      trim (entry->d_name);
-
-      strcat (path_to_file, entry->d_name);
-      trim (path_to_file);
-      lstat (path_to_file, &st);
-
-      sprintf (line, "%3d. %s [%s]", count, entry->d_name,
-               human_readable_size (st.st_size));
+      lstat (entry->d_name, &st);
+      sprintf (desc[entries], "%3d. [%s]", entries, human_readable_size (st.st_size));
 
       if (S_ISDIR (st.st_mode))
-        strcat (line, " (D)");
+        strcat (desc[entries], " (D)");
 
       if (S_ISLNK (st.st_mode))
-        strcat (line, " (L)");
+        strcat (desc[entries], " (L)");
 
-      strcpy (choices[count], line);
-      count++;
+      strcpy (choices[entries], entry->d_name);
+
+      entries++;
     }
 
     closedir (dir);
@@ -401,22 +381,27 @@ restore_select (struct waste_containers *waste, char *time_str_appended)
     /* Initialize items */
     n_choices = ARRAY_SIZE(choices);
     my_items = (ITEM **) calloc (n_choices + 1, sizeof (ITEM *));
-    for (i = 0; i < n_choices; ++i)
-    {
-      my_items[i] = new_item (choices[i], choices[i]);
-    }
+
     my_items[n_choices] = (ITEM *) NULL;
+
+    for(i = 0; i < n_choices; ++i)
+    {
+      my_items[i] = new_item(choices[i], desc[i]);
+    }
+
+    my_items[n_choices] = (ITEM *)NULL;
 
     my_menu = new_menu ((ITEM **) my_items);
     menu_opts_off (my_menu, O_ONEVALUE);
 
+    mvprintw (LINES - 4, 0, "\t>-- %s --<\n", waste[ctr].parent);
     mvprintw (LINES - 3, 0, "Use <SPACE> to select or unselect an item.");
     mvprintw (LINES - 2, 0,
-              "<ENTER> to see presently selected items(F1 to Exit)");
+              "<ENTER> to see presently selected items('q' to Exit)");
     post_menu (my_menu);
     refresh ();
 
-    while ((c = getch ()) != KEY_F (1))
+    while ((c = getch ()) != 'q')
     {
       switch (c)
       {
@@ -425,6 +410,12 @@ restore_select (struct waste_containers *waste, char *time_str_appended)
         break;
       case KEY_UP:
         menu_driver (my_menu, REQ_UP_ITEM);
+        break;
+      case KEY_NPAGE:
+        menu_driver (my_menu, REQ_SCR_DPAGE);
+        break;
+      case KEY_PPAGE:
+        menu_driver (my_menu, REQ_SCR_UPAGE);
         break;
       case ' ':
         menu_driver (my_menu, REQ_TOGGLE_ITEM);
@@ -437,11 +428,14 @@ restore_select (struct waste_containers *waste, char *time_str_appended)
           items = menu_items (my_menu);
           temp[0] = '\0';
           for (i = 0; i < item_count (my_menu); ++i)
+          {
             if (item_value (items[i]) == TRUE)
             {
-              strcat (temp, item_name (items[i]));
-              strcat (temp, " ");
+              static char recover_file[PATH_MAX + 1];
+              sprintf (recover_file, "%s%s", waste[ctr].files, item_name (items[i]));
+              Restore (recover_file, time_str_appended, waste);
             }
+          }
           move (20, 0);
           clrtoeol ();
           mvprintw (20, 0, temp);
